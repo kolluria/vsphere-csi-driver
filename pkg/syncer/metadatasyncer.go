@@ -282,8 +282,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
-		volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false,
-			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ListViewPerf), metadataSyncer.clusterFlavor)
+		volumeManager, err := volumes.GetManager(ctx, vCenter,
+			nil, false, false, false, metadataSyncer.clusterFlavor)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -329,7 +329,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	} else {
 		// code block only applicable to Vanilla
-		tasksListViewEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ListViewPerf)
 		// Initialize volume manager with vcenter credentials for Vanilla flavor
 		if !isMultiVCenterFssEnabled {
 			// Initialize volume manager with vcenter credentials
@@ -345,8 +344,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 			volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
-			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false, tasksListViewEnabled,
-				metadataSyncer.clusterFlavor)
+			volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, false, false, metadataSyncer.clusterFlavor)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
@@ -368,8 +366,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v",
 						vcconfig.Host, err)
 				}
-				volumeManager, err := volumes.GetManager(ctx, vCenter, nil, false, true, multivCenterTopologyDeployment,
-					tasksListViewEnabled, metadataSyncer.clusterFlavor)
+				volumeManager, err := volumes.GetManager(ctx, vCenter,
+					nil, false, true,
+					multivCenterTopologyDeployment, metadataSyncer.clusterFlavor)
 				if err != nil {
 					return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 				}
@@ -1352,7 +1351,6 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	log.Info("Reloading Configuration")
 	var cfg *cnsconfig.Config
 	var err error
-	tasksListViewEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ListViewPerf)
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
 		cfg, err = getConfig(ctx)
@@ -1503,8 +1501,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 			}
-			volumeManager, err := volumes.GetManager(ctx, vcenter, nil, false, false, false, tasksListViewEnabled,
-				metadataSyncer.clusterFlavor)
+			volumeManager, err := volumes.GetManager(ctx, vcenter, nil, false, false, false, metadataSyncer.clusterFlavor)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
