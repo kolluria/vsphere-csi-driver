@@ -75,7 +75,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
-		log.Debug("Not initializing the CnsUnregisterVolume Controller as its a non-WCP CSI deployment")
+		log.Debug("Not initializing the CnsUnregisterVolume Controller as it is not a WCP CSI deployment")
 		return nil
 	}
 
@@ -193,7 +193,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	}
 	timeout = backOffDuration[instance.Name]
 	backOffDurationMapMutex.Unlock()
-	// If the CnsUnregistereVolume instance is already unregistered, remove the
+	// If the CnsUnregisterVolume instance is already unregistered, remove the
 	// instance from the queue.
 	if instance.Status.Unregistered {
 		backOffDurationMapMutex.Lock()
@@ -254,17 +254,17 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 			entityType := k8sEntityMetadata.EntityType
 
 			if entityType == string(cnstypes.CnsKubernetesEntityTypePV) {
-				pvName = entity.(*cnstypes.CnsKubernetesEntityMetadata).EntityName
+				pvName = k8sEntityMetadata.EntityName
 			}
 
 			if entityType == string(cnstypes.CnsKubernetesEntityTypePVC) {
-				pvcName = entity.(*cnstypes.CnsKubernetesEntityMetadata).EntityName
-				pvcNamespace = entity.(*cnstypes.CnsKubernetesEntityMetadata).Namespace
+				pvcName = k8sEntityMetadata.EntityName
+				pvcNamespace = k8sEntityMetadata.Namespace
 			}
 		}
 	}
 
-	k8sclient, err := k8s.NewClient(ctx)
+	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Failed to initialize K8S client when reconciling CnsUnregisterVolume "+
 			"instance: %s on namespace: %s. Error: %+v", instance.Name, instance.Namespace, err)
@@ -272,7 +272,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	err = validateVolumeNotInUse(ctx, cnsVol, pvcName, pvcNamespace, k8sclient)
+	err = validateVolumeNotInUse(ctx, cnsVol, pvcName, pvcNamespace, k8sClient)
 	if err != nil {
 		log.Error(err)
 		setInstanceError(ctx, r, instance, err.Error())
@@ -281,7 +281,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 
 	if pvName != "" {
 		//Change PV ReclaimPolicy to retain so that underlying FCD doesn't get deleted when deleting PV,PVC
-		pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+		pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Errorf("Unable to get PV %q", pvName)
@@ -292,7 +292,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 		if pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimRetain {
 			pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
 			retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				_, updateErr := k8sclient.CoreV1().PersistentVolumes().Update(context.TODO(), pv, metav1.UpdateOptions{})
+				_, updateErr := k8sClient.CoreV1().PersistentVolumes().Update(context.TODO(), pv, metav1.UpdateOptions{})
 				return updateErr
 			})
 			if retryErr != nil {
@@ -308,7 +308,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 
 	// Delete PVC.
 	if pvcName != "" && pvcNamespace != "" {
-		err = k8sclient.CoreV1().PersistentVolumeClaims(pvcNamespace).Delete(ctx,
+		err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Delete(ctx,
 			pvcName, *metav1.NewDeleteOptions(0))
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -330,7 +330,7 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	if pvName != "" {
 		// Delete PV.
 		// Since reclaimPolicy was set to Retain, we need to explicitly delete it.
-		err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
+		err = k8sClient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				log.Infof("PV %q not found. It may have already been deleted."+
@@ -377,10 +377,24 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 
 // validateVolumeNotInUse validates whether the volume to be unregistered is not in use by
 // either PodVM, TKG cluster or Volume service VM.
+// TODO: change the signature to (bool, error) and return true if the volume is not in use.
 func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcName string,
 	pvcNamespace string, k8sClient clientset.Interface) error {
 
 	log := logger.GetLogger(ctx)
+
+	// Check if the Supervisor volume is not used in any TKGs cluster.
+	// For volumes created from TKGs Cluster, CNS metadata will have two entries for containerClusterArray.
+	// One for clusterFlavor: "WORKLOAD" & clusterDistribution "SupervisorCluster",
+	// another for clusterFlavor: "GUEST_CLUSTER" & clusterDistribution: "TKGService".
+	for _, containerCluster := range cnsVol.Metadata.ContainerClusterArray {
+		if containerCluster.ClusterFlavor == "GUEST_CLUSTER" {
+			log.Debugf("Volume %s is in use by guest cluster with CNS clusterId %s", cnsVol.VolumeId.Id,
+				containerCluster.ClusterId)
+			return fmt.Errorf("cannot unregister the volume %s as it's in use by guest cluster with CNS clusterId %s",
+				cnsVol.VolumeId.Id, containerCluster.ClusterId)
+		}
+	}
 
 	// Check if the Supervisor volume is not in use by any pods (PodVMs) in the namespace.
 	pods, err := k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{})
@@ -399,19 +413,6 @@ func validateVolumeNotInUse(ctx context.Context, cnsVol cnstypes.CnsVolume, pvcN
 				return fmt.Errorf("cannot unregister the volume %s as it's in use by pod %s in namespace %s",
 					cnsVol.VolumeId.Id, pod.Name, pvcNamespace)
 			}
-		}
-	}
-
-	// Check if the Supervisor volume is not used in any TKGs cluster.
-	// For volumes created from TKGs Cluster, CNS metadata will have two entries for containerClusterArray.
-	// One for clusterFlavor: "WORKLOAD" & clusterDistribution "SupervisorCluster",
-	// another for clusterFlavor: "GUEST_CLUSTER" & clusterDistribution: "TKGService".
-	for _, containerCluster := range cnsVol.Metadata.ContainerClusterArray {
-		if containerCluster.ClusterFlavor == "GUEST_CLUSTER" {
-			log.Debugf("Volume %s is in use by guest cluster with CNS clusterId %s", cnsVol.VolumeId.Id,
-				containerCluster.ClusterId)
-			return fmt.Errorf("cannot unregister the volume %s as it's in use by guest cluster with CNS clusterId %s",
-				cnsVol.VolumeId.Id, containerCluster.ClusterId)
 		}
 	}
 

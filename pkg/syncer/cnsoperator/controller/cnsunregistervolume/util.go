@@ -29,6 +29,7 @@ import (
 // If environment variable WORKER_THREADS_UNREGISTER_VOLUME is set and valid,
 // return the value read from environment variable. Otherwise, use the default
 // value.
+// TODO: Refactor
 func getMaxWorkerThreadsToReconcileCnsUnregisterVolume(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
 	workerThreads := defaultMaxWorkerThreadsForUnregisterVolume
