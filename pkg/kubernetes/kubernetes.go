@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -75,6 +76,16 @@ const (
 	timeout  = 60 * time.Second
 	pollTime = 5 * time.Second
 )
+
+type CustomResourceVersion struct {
+	Group    string
+	Kind    string
+	Version string
+}
+
+func (c CustomResourceVersion) String() string {
+	return fmt.Sprintf("Group: %s, Kind: %s, Version: %s", c.Group, c.Kind, c.Version)
+}
 
 // GetKubeConfig helps retrieve Kubernetes Config.
 func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
@@ -808,4 +819,57 @@ func UpdateStatus(ctx context.Context, c client.Client, obj client.Object) error
 	log.Infof("Successfully updated status for %s %s/%s", obj.GetObjectKind().GroupVersionKind().Kind,
 		obj.GetNamespace(), obj.GetName())
 	return nil
+}
+
+func ListCustomResourceVersions(ctx context.Context, group, kind string) (*[]CustomResourceVersion, error) {
+	log := logger.GetLogger(ctx)
+	cfg, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Error("Failed to get kubeconfig: ", err.Error())
+		return nil, err
+	}
+
+	// Create discovery client
+	discoClient := discovery.NewDiscoveryClientForConfigOrDie(cfg)
+	// Fetch all the API groups available in the cluster
+	apiGroups, err := discoClient.ServerGroups()
+	if err != nil {
+		log.Error("Failed to fetch server groups: ", err.Error())
+		return nil, err
+	}
+
+	var versions []CustomResourceVersion
+	for _, g := range apiGroups.Groups {
+		if g.Name != group {
+			continue
+		}
+
+		// For each matching group, iterate through its versions
+		// and check if the specified kind exists in them.
+		// This ensures that we only return versions where the kind is present.
+		// For example, if the group is "vmoperator.vmware.com" and kind is "VirtualMachine",
+		// we will check each GroupVersion i.e, "vmoperator.vmware.com/v1alpha1", "vmoperator.vmware.com/v1alpha2", etc.
+		// and return the versions where "VirtualMachine" kind is available.
+		for _, v := range g.Versions {
+			resList, err := discoClient.ServerResourcesForGroupVersion(v.GroupVersion)
+			if err != nil {
+				log.Warnf("Error fetching resources for group version: %s - %s. Continuing to next version.",
+					v.GroupVersion, err.Error())
+				continue
+			}
+
+			for _, res := range resList.APIResources {
+				if res.Kind == kind {
+					versions = append(versions, CustomResourceVersion{
+						Group:   group,
+						Kind:    kind,
+						Version: v.Version,
+					})
+					// we can safely break here since we found the kind we were looking for.
+					break
+				}
+			}
+		}
+	}
+	return &versions, nil
 }
