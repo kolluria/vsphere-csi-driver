@@ -20,7 +20,6 @@ import (
 	"context"
 	"math"
 	"strconv"
-	"strings"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
@@ -130,7 +129,7 @@ func ListVirtualMachines(ctx context.Context, clt client.Client,
 // GetVirtualMachine fetches the virtual machine with the specified key
 // converted to the latest API version(v1alpha4).
 // Additionally, it returns the API version of the virtual machine CRD.
-func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
+func GetVirtualMachine(ctx context.Context, clt client.Client,
 	vmKey types.NamespacedName) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -146,7 +145,7 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	switch version {
 	case "v1alpha1":
 		vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
-		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha1)
+		err = clt.Get(ctx, vmKey, vmV1alpha1)
 		if err != nil {
 			log.Errorf("failed to get virtual machine with key %s in v1alpha1: %s", vmKey.String(), err)
 			return nil, "", err
@@ -160,7 +159,7 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 		}
 	case "v1alpha2":
 		vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
-		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha2)
+		err = clt.Get(ctx, vmKey, vmV1alpha2)
 		if err != nil {
 			log.Errorf("failed to get virtual machine with key %s in v1alpha2: %s", vmKey.String(), err)
 			return nil, "", err
@@ -174,7 +173,7 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 		}
 	case "v1alpha3":
 		vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
-		err = vmOperatorClient.Get(ctx, vmKey, vmV1alpha3)
+		err = clt.Get(ctx, vmKey, vmV1alpha3)
 		if err != nil {
 			log.Errorf("failed to get virtual machine with key %s in v1alpha3: %s", vmKey.String(), err)
 			return nil, "", err
@@ -187,7 +186,7 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 			return nil, "", err
 		}
 	case "v1alpha4":
-		err = vmOperatorClient.Get(ctx, vmKey, vm)
+		err = clt.Get(ctx, vmKey, vm)
 		if err != nil {
 			log.Errorf("failed to get virtual machine with key %s in v1alpha4: %s", vmKey.String(), err)
 			return nil, "", err
@@ -199,6 +198,180 @@ func GetVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	}
 
 	return vm, apiVersion, nil
+}
+
+// UpdateVirtualMachine updates the virtual machine after converting it to the latest API version.
+func UpdateVirtualMachine(ctx context.Context, clt client.Client,
+	vmV1alpha4 *vmoperatorv1alpha4.VirtualMachine) error {
+	log := logger.GetLogger(ctx)
+
+	version, err := kubernetes.GetLatestCRDVersion(ctx, virtualMachineCRDName)
+	if err != nil {
+		log.Errorf("failed to get latest CRD version for %s: %s", virtualMachineCRDName, err)
+		return err
+	}
+
+	log.Infof("Updating virtual machine with key: %s, version: %s", vmV1alpha4.Name, version)
+	switch version {
+	case "v1alpha1":
+		vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
+		err = vmoperatorv1alpha1.Convert_v1alpha4_VirtualMachine_To_v1alpha1_VirtualMachine(
+			vmV1alpha4, vmV1alpha1, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha1:", err)
+			return err
+		}
+
+		err = clt.Update(ctx, vmV1alpha1)
+		if err != nil {
+			log.Errorf("failed to update virtual machine with key %s in v1alpha1: %s", vmV1alpha4.Name, err)
+			return err
+		}
+
+	case "v1alpha2":
+		vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
+		err = vmoperatorv1alpha2.Convert_v1alpha4_VirtualMachine_To_v1alpha2_VirtualMachine(
+			vmV1alpha4, vmV1alpha2, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha2:", err)
+			return err
+		}
+
+		err = clt.Update(ctx, vmV1alpha2)
+		if err != nil {
+			log.Errorf("failed to update virtual machine with key %s in v1alpha2: %s", vmV1alpha4.Name, err)
+			return err
+		}
+	case "v1alpha3":
+		vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
+		err = vmoperatorv1alpha3.Convert_v1alpha4_VirtualMachine_To_v1alpha3_VirtualMachine(
+			vmV1alpha4, vmV1alpha3, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha3:", err)
+			return err
+		}
+
+		err = clt.Update(ctx, vmV1alpha3)
+		if err != nil {
+			log.Errorf("failed to update virtual machine with key %s in v1alpha3: %s", vmV1alpha4.Name, err)
+			return err
+		}
+	case "v1alpha4":
+		err = clt.Update(ctx, vmV1alpha4)
+		if err != nil {
+			log.Errorf("failed to update virtual machine with key %s in v1alpha4: %s", vmV1alpha4.Name, err)
+		}
+	default:
+		log.Errorf("Unsupported version: %s. Something is fishy...", version)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"Unsupported version: %s. Something is fishy...", version)
+	}
+
+	return nil
+}
+
+// PatchVirtualMachine patches the virtual machine with the new state
+// after converting it to the latest API version.
+func PatchVirtualMachine(ctx context.Context, clt client.Client,
+	newVM, oldVM *vmoperatorv1alpha4.VirtualMachine) error {
+	log := logger.GetLogger(ctx)
+
+	version, err := kubernetes.GetLatestCRDVersion(ctx, virtualMachineCRDName)
+	if err != nil {
+		log.Errorf("failed to get latest CRD version for %s: %s", virtualMachineCRDName, err)
+		return err
+	}
+
+	log.Infof("Patching virtual machine with key: %s, version: %s", newVM.Name, version)
+	switch version {
+	case "v1alpha1":
+		newV1Alpha1VM, oldV1Alpha1VM := &vmoperatorv1alpha1.VirtualMachine{}, &vmoperatorv1alpha1.VirtualMachine{}
+		err := vmoperatorv1alpha1.Convert_v1alpha4_VirtualMachine_To_v1alpha1_VirtualMachine(
+			newVM, newV1Alpha1VM, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha1:", err)
+			return err
+		}
+
+		err = vmoperatorv1alpha1.Convert_v1alpha4_VirtualMachine_To_v1alpha1_VirtualMachine(
+			oldVM, oldV1Alpha1VM, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha1:", err)
+			return err
+		}
+
+		patch := client.MergeFromWithOptions(
+			oldV1Alpha1VM.DeepCopy(),
+			client.MergeFromWithOptimisticLock{})
+		err = clt.Patch(ctx, newV1Alpha1VM, patch)
+		if err != nil {
+			log.Errorf("failed to patch virtual machine with key %s in v1alpha1: %s", newVM.Name, err)
+			return err
+		}
+	case "v1alpha2":
+		newV1Alpha2VM, oldV1Alpha2VM := &vmoperatorv1alpha2.VirtualMachine{}, &vmoperatorv1alpha2.VirtualMachine{}
+		err = vmoperatorv1alpha2.Convert_v1alpha4_VirtualMachine_To_v1alpha2_VirtualMachine(
+			newVM, newV1Alpha2VM, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha2:", err)
+			return err
+		}
+
+		err = vmoperatorv1alpha2.Convert_v1alpha4_VirtualMachine_To_v1alpha2_VirtualMachine(
+			oldVM, oldV1Alpha2VM, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha2:", err)
+			return err
+		}
+
+		patch := client.MergeFromWithOptions(
+			oldV1Alpha2VM.DeepCopy(),
+			client.MergeFromWithOptimisticLock{})
+		err = clt.Patch(ctx, newV1Alpha2VM, patch)
+		if err != nil {
+			log.Errorf("failed to patch virtual machine with key %s in v1alpha2: %s", newVM.Name, err)
+			return err
+		}
+	case "v1alpha3":
+		newV1Alpha3VM, oldV1Alpha3VM := &vmoperatorv1alpha3.VirtualMachine{}, &vmoperatorv1alpha3.VirtualMachine{}
+		err = vmoperatorv1alpha3.Convert_v1alpha4_VirtualMachine_To_v1alpha3_VirtualMachine(
+			newVM, newV1Alpha3VM, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha3:", err)
+			return err
+		}
+
+		err = vmoperatorv1alpha3.Convert_v1alpha4_VirtualMachine_To_v1alpha3_VirtualMachine(
+			oldVM, oldV1Alpha3VM, nil)
+		if err != nil {
+			log.Error("Error converting v1alpha4 virtual machine to v1alpha3:", err)
+			return err
+		}
+
+		patch := client.MergeFromWithOptions(
+			oldV1Alpha3VM.DeepCopy(),
+			client.MergeFromWithOptimisticLock{})
+		err = clt.Patch(ctx, newV1Alpha3VM, patch)
+		if err != nil {
+			log.Errorf("failed to patch virtual machine with key %s in v1alpha3: %s", newVM.Name, err)
+			return err
+		}
+	case "v1alpha4":
+		patch := client.MergeFromWithOptions(
+			oldVM.DeepCopy(),
+			client.MergeFromWithOptimisticLock{})
+		err = clt.Patch(ctx, newVM, patch)
+		if err != nil {
+			log.Errorf("failed to patch virtual machine with key %s in v1alpha4: %s", newVM.Name, err)
+			return err
+		}
+	default:
+		log.Errorf("Unsupported version: %s. Something is fishy...", version)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"Unsupported version: %s. Something is fishy...", version)
+	}
+
+	return nil
 }
 
 // QueryVolumeUtil helps to invoke query volume API based on the feature
@@ -430,140 +603,4 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 			"QueryAllVolume failed with err=%+v", err.Error())
 	}
 	return queryAllResult, nil
-}
-
-func isKindNotFound(errMsg string) bool {
-	return strings.Contains(errMsg, "no matches for kind") || strings.Contains(errMsg, "no kind is registered")
-}
-
-func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmV1alpha4, old_vmV1alpha4 *vmoperatorv1alpha4.VirtualMachine) error {
-	log := logger.GetLogger(ctx)
-	vmV1alpha1, old_vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}, &vmoperatorv1alpha1.VirtualMachine{}
-	vmV1alpha2, old_vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}, &vmoperatorv1alpha2.VirtualMachine{}
-	vmV1alpha3, old_vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}, &vmoperatorv1alpha3.VirtualMachine{}
-	vmPatch4 := client.MergeFromWithOptions(
-		old_vmV1alpha4.DeepCopy(),
-		client.MergeFromWithOptimisticLock{})
-	log.Infof("PatchVirtualMachine: patch virtualmachine name: %s", vmV1alpha4.Name)
-	// try patch virtualmachine with api version v1alpha4
-	err := vmOperatorClient.Patch(ctx, vmV1alpha4, vmPatch4)
-	if err != nil && isKindNotFound(err.Error()) {
-		log.Infof("PatchVirtualMachine: converting v1alpha4 VirtualMachine to "+
-			"v1alpha3 VirtualMachine, name: %s", vmV1alpha4.Name)
-		err = vmoperatorv1alpha3.Convert_v1alpha4_VirtualMachine_To_v1alpha3_VirtualMachine(
-			vmV1alpha4, vmV1alpha3, nil)
-		if err != nil {
-			return err
-		}
-		err = vmoperatorv1alpha3.Convert_v1alpha4_VirtualMachine_To_v1alpha3_VirtualMachine(
-			old_vmV1alpha4, old_vmV1alpha3, nil)
-		if err != nil {
-			return err
-		}
-		vmPatch3 := client.MergeFromWithOptions(
-			old_vmV1alpha3.DeepCopy(),
-			client.MergeFromWithOptimisticLock{})
-		err = vmOperatorClient.Patch(ctx, vmV1alpha3, vmPatch3)
-		if err != nil && isKindNotFound(err.Error()) {
-			log.Infof("PatchVirtualMachine: converting v1alpha4 VirtualMachine to "+
-				"v1alpha2 VirtualMachine, name: %s", vmV1alpha4.Name)
-			err = vmoperatorv1alpha2.Convert_v1alpha4_VirtualMachine_To_v1alpha2_VirtualMachine(
-				vmV1alpha4, vmV1alpha2, nil)
-			if err != nil {
-				return err
-			}
-			err = vmoperatorv1alpha2.Convert_v1alpha4_VirtualMachine_To_v1alpha2_VirtualMachine(
-				old_vmV1alpha4, old_vmV1alpha2, nil)
-			if err != nil {
-				return err
-			}
-			vmPatch2 := client.MergeFromWithOptions(
-				old_vmV1alpha2.DeepCopy(),
-				client.MergeFromWithOptimisticLock{})
-			// try patch virtualmachine with api version v1alpha2
-			err := vmOperatorClient.Patch(ctx, vmV1alpha2, vmPatch2)
-			if err != nil && isKindNotFound(err.Error()) {
-				log.Infof("PatchVirtualMachine: converting v1alpha4 VirtualMachine to "+
-					"v1alpha1 VirtualMachine, name: %s", vmV1alpha4.Name)
-				err = vmoperatorv1alpha1.Convert_v1alpha4_VirtualMachine_To_v1alpha1_VirtualMachine(
-					vmV1alpha4, vmV1alpha1, nil)
-				if err != nil {
-					return err
-				}
-				err = vmoperatorv1alpha1.Convert_v1alpha4_VirtualMachine_To_v1alpha1_VirtualMachine(
-					old_vmV1alpha4, old_vmV1alpha1, nil)
-				if err != nil {
-					return err
-				}
-				vmPatch1 := client.MergeFromWithOptions(
-					old_vmV1alpha1.DeepCopy(),
-					client.MergeFromWithOptimisticLock{})
-				// try patch virtualmachine with api version v1alpha1
-				err := vmOperatorClient.Patch(ctx, vmV1alpha1, vmPatch1)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-	if err != nil {
-		log.Errorf("PatchVirtualMachine: error while patching virtualmachine name: %s, err %v",
-			vmV1alpha4.Name, err)
-		return err
-	}
-	log.Infof("PatchVirtualMachine: successfully patched the virtualmachine, name: %s", vmV1alpha4.Name)
-	return nil
-}
-
-func UpdateVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmV1alpha4 *vmoperatorv1alpha4.VirtualMachine) error {
-	vmV1alpha1 := &vmoperatorv1alpha1.VirtualMachine{}
-	vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}
-	vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}
-	log := logger.GetLogger(ctx)
-	log.Infof("UpdateVirtualMachine: update virtualmachine name: %s", vmV1alpha4.Name)
-	// try update virtualmachine with api version v1alpha4
-	err := vmOperatorClient.Update(ctx, vmV1alpha4)
-	if err != nil && isKindNotFound(err.Error()) {
-		log.Infof("UpdateVirtualMachine: converting v1alpha4 VirtualMachine to "+
-			"v1alpha3 VirtualMachine, name: %s", vmV1alpha4.Name)
-		err = vmoperatorv1alpha3.Convert_v1alpha4_VirtualMachine_To_v1alpha3_VirtualMachine(
-			vmV1alpha4, vmV1alpha3, nil)
-		if err != nil {
-			return err
-		}
-		err := vmOperatorClient.Update(ctx, vmV1alpha3)
-		if err != nil && isKindNotFound(err.Error()) {
-			log.Infof("UpdateVirtualMachine: converting v1alpha4 VirtualMachine to "+
-				"v1alpha2 VirtualMachine, name: %s", vmV1alpha4.Name)
-			err = vmoperatorv1alpha2.Convert_v1alpha4_VirtualMachine_To_v1alpha2_VirtualMachine(
-				vmV1alpha4, vmV1alpha2, nil)
-			if err != nil {
-				return err
-			}
-			// try update virtualmachine with api version v1alpha2
-			err := vmOperatorClient.Update(ctx, vmV1alpha2)
-			if err != nil && isKindNotFound(err.Error()) {
-				log.Infof("UpdateVirtualMachine: converting v1alpha4 VirtualMachine to "+
-					"v1alpha1 VirtualMachine, name: %s", vmV1alpha4.Name)
-				err = vmoperatorv1alpha1.Convert_v1alpha4_VirtualMachine_To_v1alpha1_VirtualMachine(
-					vmV1alpha4, vmV1alpha1, nil)
-				if err != nil {
-					return err
-				}
-				// try update virtualmachine with api version v1alpha1
-				err := vmOperatorClient.Update(ctx, vmV1alpha1)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-	if err != nil {
-		log.Errorf("UpdateVirtualMachine: error while updating virtualmachine name: %s, err %v", vmV1alpha4.Name, err)
-		return err
-	}
-	log.Infof("UpdateVirtualMachine: successfully updated the virtualmachine, name: %s", vmV1alpha4.Name)
-	return nil
 }
