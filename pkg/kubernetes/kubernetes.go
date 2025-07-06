@@ -674,6 +674,6 @@ func GetLatestCRDVersion(ctx context.Context, crdName string) (string, error) {
 	}
 
 	err = fmt.Errorf("no storage version found for CRD %s", crdName)
-	log.Errorf("%s", err)
+	log.Error(err)
 	return "", err
 }

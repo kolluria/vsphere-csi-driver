@@ -11,23 +11,24 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-
-	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
-	"k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (
@@ -203,6 +204,7 @@ func TestListVirtualMachines(t *testing.T) {
 		// Assert
 		assert.NotNil(tt, err)
 	})
+
 	t.Run("WhenLatestCRDVersionIsV1Alpha1", func(tt *testing.T) {
 		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
 			return "v1alpha1", nil
@@ -295,6 +297,193 @@ func TestListVirtualMachines(t *testing.T) {
 			assert.True(tt, compareVirtualMachineLists(exp, *actual))
 		})
 	})
+
+	t.Run("WhenLatestCRDVersionIsV1Alpha2", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha2", nil
+		}
+		tt.Run("WhenListFails", func(ttt *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(interceptor.Funcs{List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				return fmt.Errorf("failing list for testing purposes")
+			}})
+
+			// Execute
+			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
+
+			// Assert
+			assert.NotNil(ttt, err)
+		})
+		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm1 := &vmoperatorv1alpha2.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha2",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			vm2 := &vmoperatorv1alpha2.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha2",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm2",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha2.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
+			v1Alpha4VM1 := vmoperatorv1alpha4.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			v1Alpha4VM2 := vmoperatorv1alpha4.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm2",
+					Namespace: namespace.Name,
+				},
+			}
+			exp := vmoperatorv1alpha4.VirtualMachineList{
+				TypeMeta: metav1.TypeMeta{},
+				ListMeta: metav1.ListMeta{},
+				Items: []vmoperatorv1alpha4.VirtualMachine{
+					v1Alpha4VM1,
+					v1Alpha4VM2,
+				},
+			}
+
+			// Execute
+			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
+
+			// Assert
+			assert.Nil(tt, err)
+			assert.NotNil(tt, actual)
+			assert.True(tt, compareVirtualMachineLists(exp, *actual))
+		})
+	})
+
+	t.Run("WhenLatestCRDVersionIsV1Alpha3", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha3", nil
+		}
+		tt.Run("WhenListFails", func(ttt *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(interceptor.Funcs{List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				return fmt.Errorf("failing list for testing purposes")
+			}})
+
+			// Execute
+			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
+
+			// Assert
+			assert.NotNil(ttt, err)
+		})
+		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm1 := &vmoperatorv1alpha3.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha3",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			vm2 := &vmoperatorv1alpha3.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha3",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm2",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha3.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
+			v1Alpha4VM1 := vmoperatorv1alpha4.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			v1Alpha4VM2 := vmoperatorv1alpha4.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm2",
+					Namespace: namespace.Name,
+				},
+			}
+			exp := vmoperatorv1alpha4.VirtualMachineList{
+				TypeMeta: metav1.TypeMeta{},
+				ListMeta: metav1.ListMeta{},
+				Items: []vmoperatorv1alpha4.VirtualMachine{
+					v1Alpha4VM1,
+					v1Alpha4VM2,
+				},
+			}
+
+			// Execute
+			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
+
+			// Assert
+			assert.Nil(tt, err)
+			assert.NotNil(tt, actual)
+			assert.True(tt, compareVirtualMachineLists(exp, *actual))
+		})
+	})
+
 	t.Run("WhenLatestCRDVersionIsV1Alpha4", func(tt *testing.T) {
 		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
 			return "v1alpha4", nil
@@ -375,6 +564,7 @@ func TestListVirtualMachines(t *testing.T) {
 			assert.True(tt, compareVirtualMachineLists(exp, *actual))
 		})
 	})
+
 	t.Run("WhenLatestCRDVersionIsInvalid", func(tt *testing.T) {
 		// Setup
 		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
