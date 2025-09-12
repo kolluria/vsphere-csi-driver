@@ -65,13 +65,14 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
-		nodeList, err = fnodes.GetReadySchedulableNodes(f.ClientSet)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+
 		generateNodeMap(ctx, testConfig, &e2eVSphere, client)
 		err = toggleCSIMigrationFeatureGatesOnKubeControllerManager(ctx, client, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -404,19 +405,19 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 
 		ginkgo.By("Create 4 PVCs (1..4) using SC1")
 		for i := 1; i < 5; i++ {
-			pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
+			pvc, err := createPVC(ctx, client, namespace, nil, "", vcpSc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vcpPvcsPostMig = append(vcpPvcsPostMig, pvc)
 		}
 		ginkgo.By("Create 4 PVCs (7..10) using SC2")
 		for i := 1; i < 5; i++ {
-			pvc, err := createPVC(client, namespace, nil, "", vcpScRetain, "")
+			pvc, err := createPVC(ctx, client, namespace, nil, "", vcpScRetain, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vcpPvcsPostMig = append(vcpPvcsPostMig, pvc)
 		}
 
 		ginkgo.By("Waiting for PVCs to bind")
-		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
+		vcpPvsPostMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPostMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating vmdk1 on the shared datastore " + scParams[vcpScParamDatastoreName])
@@ -440,7 +441,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
 
 		ginkgo.By("Waiting for PVC1 and PV1 to bind")
-		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating vmdk2 on the shared datastore " + scParams[vcpScParamDatastoreName])
@@ -474,7 +475,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		isVsanHealthServiceStopped = true
-		err = invokeVCenterServiceControl(stopOperation, vsanhealthServiceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
 			vsanHealthServiceWaitTime))
@@ -482,13 +483,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 
 		ginkgo.By("Create PVCs 5, 6 using SC1")
 		for i := 1; i < 3; i++ {
-			pvc, err := createPVC(client, namespace, nil, "", vcpSc, "")
+			pvc, err := createPVC(ctx, client, namespace, nil, "", vcpSc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vcpPvcsPostMig = append(vcpPvcsPostMig, pvc)
 		}
 		ginkgo.By("Create PVCs 11, 12 using SC2")
 		for i := 1; i < 3; i++ {
-			pvc, err := createPVC(client, namespace, nil, "", vcpScRetain, "")
+			pvc, err := createPVC(ctx, client, namespace, nil, "", vcpScRetain, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vcpPvcsPostMig = append(vcpPvcsPostMig, pvc)
 		}
@@ -560,9 +561,9 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		_, err = fpv.WaitForPVClaimBoundPhase(client, []*v1.PersistentVolumeClaim{pvc2}, framework.ClaimProvisionTimeout)
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvsCreatedDuringCnsDown, err := fpv.WaitForPVClaimBoundPhase(client,
+		pvsCreatedDuringCnsDown, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 			vcpPvcsPostMig[8:], framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vcpPvsPostMig = append(vcpPvsPostMig, pvsCreatedDuringCnsDown...)
@@ -652,7 +653,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcAddress := e2eVSphere.Config.Global.VCenterHostname + ":" + sshdPort
 		ginkgo.By(fmt.Sprintln("Stopping sps on the vCenter host"))
 		isSPSServiceStopped = true
-		err = invokeVCenterServiceControl(stopOperation, spsServiceName, vcAddress)
+		err = invokeVCenterServiceControl(ctx, stopOperation, spsServiceName, vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow sps to completely shutdown", vsanHealthServiceWaitTime))
 		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
@@ -665,7 +666,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", fu
 		vcpPvcsPreMig = append(vcpPvcsPreMig, pvc1)
 
 		ginkgo.By("Waiting for PVC1 and PV1 to bind")
-		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
+		vcpPvsPreMig, err = fpv.WaitForPVClaimBoundPhase(ctx, client, vcpPvcsPreMig, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting sps on the vCenter host"))

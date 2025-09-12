@@ -246,12 +246,18 @@ func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Confi
 		Kind:    cnsfileaccessconfigKind,
 	}
 
-	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	httpClient, err := restclient.HTTPClientFor(config)
+	if err != nil {
+		log.Errorf("failed to create Http.Client with err: %+v", err)
+		return nil, err
+	}
+	restClient, err := apiutils.RESTClientForGVK(gvk, false, config,
+		serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err
 	}
-	return cache.NewListWatchFromClient(client, cnsfileaccessconfigKind, namespace, fields.Everything()), nil
+	return cache.NewListWatchFromClient(restClient, cnsfileaccessconfigKind, namespace, fields.Everything()), nil
 }
 
 // NewVirtualMachineWatcher creates a new ListWatch for VirtualMachines given
@@ -272,12 +278,19 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 		Kind:    virtualMachineKind,
 	}
 
-	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	httpClient, err := restclient.HTTPClientFor(config)
+	if err != nil {
+		log.Errorf("failed to create Http.Client with err: %+v", err)
+		return nil, err
+	}
+
+	restClient, err := apiutils.RESTClientForGVK(gvk, false, config,
+		serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
 		return nil, err
 	}
-	return cache.NewListWatchFromClient(client, virtualMachineKind, namespace, fields.Everything()), nil
+	return cache.NewListWatchFromClient(restClient, virtualMachineKind, namespace, fields.Everything()), nil
 }
 
 // NewCSINodeTopologyWatcher creates a new ListWatch for CSINodeTopology objects
@@ -298,12 +311,18 @@ func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (
 		Kind:    csiNodeTopologyKind,
 	}
 
-	client, err := apiutils.RESTClientForGVK(gvk, false, config, serializer.NewCodecFactory(scheme))
+	httpClient, err := restclient.HTTPClientFor(config)
 	if err != nil {
-		log.Errorf("failed to create RESTClient for %s CR with err: %+v", csiNodeTopologyKind, err)
+		log.Errorf("failed to create Http.Client with err: %+v", err)
 		return nil, err
 	}
-	return cache.NewListWatchFromClient(client, csiNodeTopologyKind, v1.NamespaceAll, fields.Everything()), nil
+	restClient, err := apiutils.RESTClientForGVK(gvk, false, config,
+		serializer.NewCodecFactory(scheme), httpClient)
+	if err != nil {
+		log.Errorf("failed to create RESTClient with err: %+v", err)
+		return nil, err
+	}
+	return cache.NewListWatchFromClient(restClient, csiNodeTopologyKind, v1.NamespaceAll, fields.Everything()), nil
 }
 
 // CreateKubernetesClientFromConfig creaates a newk8s client from given
@@ -485,26 +504,27 @@ func createCustomResourceDefinition(ctx context.Context, newCrd *apiextensionsv1
 func waitForCustomResourceToBeEstablished(ctx context.Context,
 	clientSet apiextensionsclientset.Interface, crdName string) error {
 	log := logger.GetLogger(ctx)
-	err := wait.Poll(pollTime, timeout, func() (bool, error) {
-		crd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
-		if err != nil {
-			log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
-			return false, err
-		}
-		for _, cond := range crd.Status.Conditions {
-			switch cond.Type {
-			case apiextensionsv1.Established:
-				if cond.Status == apiextensionsv1.ConditionTrue {
-					return true, err
-				}
-			case apiextensionsv1.NamesAccepted:
-				if cond.Status == apiextensionsv1.ConditionFalse {
-					log.Debugf("Name conflict while waiting for %q CRD creation", cond.Reason)
+	err := wait.PollUntilContextTimeout(ctx, pollTime, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			crd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+			if err != nil {
+				log.Errorf("Failed to get %q CRD with err: %+v", crdName, err)
+				return false, err
+			}
+			for _, cond := range crd.Status.Conditions {
+				switch cond.Type {
+				case apiextensionsv1.Established:
+					if cond.Status == apiextensionsv1.ConditionTrue {
+						return true, err
+					}
+				case apiextensionsv1.NamesAccepted:
+					if cond.Status == apiextensionsv1.ConditionFalse {
+						log.Debugf("Name conflict while waiting for %q CRD creation", cond.Reason)
+					}
 				}
 			}
-		}
-		return false, err
-	})
+			return false, err
+		})
 
 	// If there is an error, delete the object to keep it clean.
 	if err != nil {

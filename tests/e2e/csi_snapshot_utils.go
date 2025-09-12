@@ -466,7 +466,7 @@ func getPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				accessMode,
 			},
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
 				},
@@ -612,10 +612,10 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 		v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
 
-	pvclaim2, err := fpv.CreatePVC(client, namespace, pvcSpec)
+	pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(client,
+	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
@@ -627,7 +627,7 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	if verifyPodCreation {
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err := createPod(client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
+		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
 			execRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -664,15 +664,15 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 
 // createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
 // and verifies cns metadata of that volume if verifyCNSVolume is set to true
-func createPVCAndQueryVolumeInCNS(client clientset.Interface, namespace string,
+func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface, namespace string,
 	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
 	ds string, storageclass *storagev1.StorageClass,
 	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume) {
-	pvclaim, err := createPVC(client, namespace, pvclaimLabels, ds, storageclass, accessMode)
+	pvclaim, err := createPVC(ctx, client, namespace, pvclaimLabels, ds, storageclass, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("Expect claim to provision volume successfully")
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(client,
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
 		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
