@@ -518,11 +518,17 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 						return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 					}
 				}
-				removeFinalizerFromCRDInstance(internalCtx, instance, request)
-				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+
+				// TODO: investigate why we weren't returning an error here before.
+				err = removeCNSFinalizer(internalCtx, r.client, instance)
 				if err != nil {
-					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+					msg := fmt.Sprintf("failed to remove CNS finalizer on the instance. Name: %q. namespace: %q. Error: %s",
+						request.Name, request.Namespace, err)
+					log.Errorf(msg)
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "failed to remove CNS finalizer")
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 				}
+
 				recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
 				return reconcile.Result{}, faulttype, nil
 			}
@@ -911,4 +917,16 @@ func addCNSFinalizer(ctx context.Context, c client.Client,
 	}
 
 	return k8s.PatchFinalizers(ctx, c, instance, append(instance.Finalizers, cnsoptypes.CNSFinalizer))
+}
+
+func removeCNSFinalizer(ctx context.Context, c client.Client,
+	instance *v1a1.CnsNodeVmAttachment) error {
+	for i, finalizer := range instance.Finalizers {
+		if finalizer == cnsoptypes.CNSFinalizer {
+			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
+			return k8s.PatchFinalizers(ctx, c, instance, instance.Finalizers)
+		}
+	}
+
+	return nil
 }
