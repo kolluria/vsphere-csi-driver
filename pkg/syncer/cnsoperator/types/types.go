@@ -16,6 +16,10 @@ limitations under the License.
 
 package types
 
+import (
+	"time"
+)
+
 const (
 	// CNSFinalizer is the finalizer on CNSNodeVmAttachment and CnsVolumeMetadata controllers
 	CNSFinalizer = "cns.vmware.com"
@@ -26,4 +30,7 @@ const (
 
 	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
+
+	// MaxBackOffDurationForReconciler for supervisor APIs is set to 5 minutes
+	MaxBackOffDurationForReconciler = 5 * time.Minute
 )

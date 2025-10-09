@@ -53,7 +53,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
-	internalapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
@@ -559,4 +559,20 @@ func getCRDFromManifest(ctx context.Context, embedFS embed.FS, fileName string) 
 		return nil, err
 	}
 	return &crd, nil
+}
+
+// UpdateStatus updates the status subresource of the given Kubernetes object.
+// If the object is a Custom Resource, make sure that the `subresources` field in the
+// CustomResourceDefinition includes `status` to enable status subresource updates.
+func UpdateStatus(ctx context.Context, c client.Client, obj client.Object) error {
+	log := logger.GetLogger(ctx).
+		With("kind", obj.GetObjectKind().GroupVersionKind().Kind).
+		With("name", obj.GetNamespace()+"/"+obj.GetName())
+	if err := c.Status().Update(ctx, obj); err != nil {
+		log.Errorf("Failed to update status. err: %v", err)
+		return err
+	}
+
+	log.Debug("Successfully updated status.")
+	return nil
 }
