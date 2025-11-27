@@ -297,7 +297,6 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 		if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced, im.configMapSynced) {
 			return
 		}
-
 	}
 
 	go im.snapshotInformerFactory.Start(im.stopCh)

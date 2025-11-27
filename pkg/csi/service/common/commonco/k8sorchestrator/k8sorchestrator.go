@@ -252,25 +252,25 @@ func (m *pvcToSnapshotsMap) add(pvc, snapshot, namespace string) {
 	m.Lock()
 	defer m.Unlock()
 
-	pvcKey := k8stypes.NamespacedName{
+	key := k8stypes.NamespacedName{
 		Namespace: namespace,
 		Name:      pvc,
 	}
-	if _, ok := m.items[pvcKey]; !ok {
-		m.items[pvcKey] = make(map[string]struct{})
+	if _, ok := m.items[key]; !ok {
+		m.items[key] = make(map[string]struct{})
 	}
-	m.items[pvcKey][snapshot] = struct{}{}
+	m.items[key][snapshot] = struct{}{}
 }
 
 func (m *pvcToSnapshotsMap) get(pvc, namespace string) []string {
 	m.RLock()
 	defer m.RUnlock()
 
-	pvcKey := k8stypes.NamespacedName{
+	key := k8stypes.NamespacedName{
 		Namespace: namespace,
 		Name:      pvc,
 	}
-	snapMap, ok := m.items[pvcKey]
+	snapMap, ok := m.items[key]
 	if !ok {
 		return []string{}
 	}
@@ -286,23 +286,23 @@ func (m *pvcToSnapshotsMap) delete(pvc, snapshot, namespace string) {
 	m.Lock()
 	defer m.Unlock()
 
-	pvcKey := k8stypes.NamespacedName{
+	key := k8stypes.NamespacedName{
 		Namespace: namespace,
 		Name:      pvc,
 	}
-	snapMap, ok := m.items[pvcKey]
+	snapMap, ok := m.items[key]
 	if !ok {
 		return
 	}
 
 	delete(snapMap, snapshot)
 	if len(snapMap) != 0 {
-		m.items[pvcKey] = snapMap
+		m.items[key] = snapMap
 		return
 	}
 
 	// delete pvc entry if no snapshots are present
-	delete(m.items, pvcKey)
+	delete(m.items, key)
 }
 
 // K8sOrchestrator defines set of properties specific to K8s.

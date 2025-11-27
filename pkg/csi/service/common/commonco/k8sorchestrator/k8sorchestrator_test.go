@@ -630,7 +630,7 @@ func TestInitPVCToSnapshotsMap(t *testing.T) {
 	})
 
 	// since `k8sOrchestratorInstance.informerManager` is a struct type, testing the behaviour of
-	// AddSnapshotListener is not ideal. Since TestPVCToSnapshotsMapEventHandlers tests
+	// AddSnapshotListener is not trivial. Since TestPVCToSnapshotsMapEventHandlers tests
 	// the event handlers, we're good for now.
 	// TODO: Add tests to verify actual informer logic
 }
