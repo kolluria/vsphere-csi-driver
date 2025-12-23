@@ -547,13 +547,26 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				return reconcile.Result{}, faulttype, nil
 			}
 			var cnsVolumeID string
+			var faulttype string
 			var ok bool
 			if cnsVolumeID, ok = instance.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID]; !ok {
-				log.Debugf("CnsNodeVmAttachment does not have CNS volume ID. AttachmentMetadata: %+v",
+				log.Infof("CnsNodeVmAttachment does not have CNS volume ID. "+
+					"AttachmentMetadata: %+v. Attempting to get volumeID from PVC.",
 					instance.Status.AttachmentMetadata)
-				msg := "CnsNodeVmAttachment does not have CNS volume ID."
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				// Try to get volumeID using getVolumeID function
+				var err error
+				cnsVolumeID, faulttype, err = getVolumeID(ctx, r.client,
+					instance.Spec.VolumeName, instance.Namespace)
+				if err != nil {
+					msg := fmt.Sprintf("Failed to get CNS volume ID for PVC: %q in "+
+						"namespace: %q. Err: %+v", instance.Spec.VolumeName,
+						instance.Namespace, err)
+					log.Error(msg)
+					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
+				}
+				log.Infof("Successfully retrieved CNS volume ID: %q from PVC: %q",
+					cnsVolumeID, instance.Spec.VolumeName)
 			}
 			log.Infof("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
