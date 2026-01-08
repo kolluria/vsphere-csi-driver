@@ -164,11 +164,9 @@ function build_driver_images_linux() {
 
 function build_syncer_image_linux() {
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
-  docker buildx build \
-      --platform "linux/$ARCH" \
+  docker build \
       -f images/syncer/Dockerfile \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
-      --build-arg ARCH=amd64 \
       --build-arg "VERSION=${VERSION}" \
       --build-arg "GOPROXY=${GOPROXY}" \
       --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
