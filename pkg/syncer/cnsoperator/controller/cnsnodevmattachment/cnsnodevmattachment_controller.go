@@ -67,7 +67,7 @@ const (
 // reconcile operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
 var (
-	backOffDuration         map[k8stypes.NamespacedName]time.Duration
+	backOffDuration         map[string]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -139,7 +139,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
+	backOffDuration = make(map[string]time.Duration)
 
 	// Watch for changes to primary resource CnsNodeVmAttachment.
 	err = c.Watch(source.Kind(
@@ -205,10 +205,10 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// Initialize backOffDuration for the instance, if required.
 		backOffDurationMapMutex.Lock()
 		var timeout time.Duration
-		if _, exists := backOffDuration[request.NamespacedName]; !exists {
-			backOffDuration[request.NamespacedName] = time.Second
+		if _, exists := backOffDuration[instance.Name]; !exists {
+			backOffDuration[instance.Name] = time.Second
 		}
-		timeout = backOffDuration[request.NamespacedName]
+		timeout = backOffDuration[instance.Name]
 		backOffDurationMapMutex.Unlock()
 		log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q instance %q timeout %q seconds",
 			request.Name, instance.Name, timeout)
@@ -244,7 +244,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					instance.Status.Error = err.Error()
-					err = k8s.UpdateStatus(ctx, r.client, instance)
+					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
@@ -255,7 +255,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			log.Infof("CnsNodeVmAttachment instance %q status is already attached. Removing from the queue.", instance.Name)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
-			delete(backOffDuration, request.NamespacedName)
+			delete(backOffDuration, instance.Name)
 			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, "", nil
 		}
@@ -265,7 +265,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment "+
 				"request with name: %q on namespace: %q. Err: %+v", request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
-			err = k8s.UpdateStatus(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
@@ -283,7 +283,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if err != nil {
 			msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 			instance.Status.Error = err.Error()
-			err = k8s.UpdateStatus(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
@@ -294,7 +294,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if err != nil {
 			msg := fmt.Sprintf("failed to connect to VC with error: %v", err)
 			instance.Status.Error = err.Error()
-			err = k8s.UpdateStatus(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
@@ -317,7 +317,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					"request with name: %q on namespace: %q. Err: %+v",
 					nodeUUID, request.Name, request.Namespace, err)
 				instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
-				err = k8s.UpdateStatus(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
@@ -330,7 +330,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					"request with name: %q on namespace: %q. Error: %+v",
 					instance.Spec.VolumeName, request.Name, request.Namespace, err)
 				instance.Status.Error = err.Error()
-				err = k8s.UpdateStatus(ctx, r.client, instance)
+				err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
@@ -419,7 +419,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					instance.Status.Error = err.Error()
-					err = k8s.UpdateStatus(ctx, r.client, instance)
+					err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
@@ -439,7 +439,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				instance.Status.Error = ""
 			}
 
-			err = k8s.UpdateStatus(ctx, r.client, instance)
+			err = updateCnsNodeVMAttachment(ctx, r.client, instance)
 			if err != nil {
 				msg := fmt.Sprintf("failed to update attach status on CnsNodeVmAttachment "+
 					"instance: %q on namespace: %q. Error: %+v",
@@ -458,7 +458,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 			// Cleanup instance entry from backOffDuration map.
 			backOffDurationMapMutex.Lock()
-			delete(backOffDuration, request.NamespacedName)
+			delete(backOffDuration, instance.Name)
 			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, "", nil
 		}
@@ -592,7 +592,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 					// Cleanup instance entry from backOffDuration map.
 					backOffDurationMapMutex.Lock()
-					delete(backOffDuration, request.NamespacedName)
+					delete(backOffDuration, instance.Name)
 					backOffDurationMapMutex.Unlock()
 					return reconcile.Result{}, "", nil
 				}
@@ -631,7 +631,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		// Cleanup instance entry from backOffDuration map.
 		backOffDurationMapMutex.Lock()
-		delete(backOffDuration, request.NamespacedName)
+		delete(backOffDuration, instance.Name)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, "", nil
 	}
@@ -929,23 +929,18 @@ func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int 
 func recordEvent(ctx context.Context, r *ReconcileCnsNodeVMAttachment,
 	instance *cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
-	namespacedName := k8stypes.NamespacedName{
-		Name:      instance.Name,
-		Namespace: instance.Namespace,
-	}
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
-			cnsoperatortypes.MaxBackOffDurationForReconciler)
+		backOffDuration[instance.Name] = backOffDuration[instance.Name] * 2
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVMAttachFailed", msg)
 		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = time.Second
+		backOffDuration[instance.Name] = time.Second
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVMAttachSucceeded", msg)
 		log.Info(msg)
