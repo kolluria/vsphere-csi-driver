@@ -17,13 +17,12 @@ limitations under the License.
 package crypto
 
 import (
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	byokv1 "github.com/vmware-tanzu/vm-operator/external/byok/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 )
 
-// NewK8sScheme creates a Kubernetes runtime schema for interacting with EncryptionClass and VirtualMachine entities.
+// NewK8sScheme creates a Kubernetes runtime schema for interacting with EncryptionClass entities.
 func NewK8sScheme() (*runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 
@@ -32,11 +31,6 @@ func NewK8sScheme() (*runtime.Scheme, error) {
 	}
 
 	if err := byokv1.AddToScheme(scheme); err != nil {
-		return nil, err
-	}
-
-	// Register VM Operator types to enable listing VirtualMachines
-	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 
