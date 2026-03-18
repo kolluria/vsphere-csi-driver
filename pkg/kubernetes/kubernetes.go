@@ -560,3 +560,19 @@ func getCRDFromManifest(ctx context.Context, embedFS embed.FS, fileName string) 
 	}
 	return &crd, nil
 }
+
+// UpdateStatus updates the status subresource of the given Kubernetes object.
+// If the object is a Custom Resource, make sure that the `subresources` field in the
+// CustomResourceDefinition includes `status` to enable status subresource updates.
+func UpdateStatus(ctx context.Context, c client.Client, obj client.Object) error {
+	log := logger.GetLogger(ctx).
+		With("kind", obj.GetObjectKind().GroupVersionKind().Kind).
+		With("name", obj.GetNamespace()+"/"+obj.GetName())
+	if err := c.Status().Update(ctx, obj); err != nil {
+		log.Errorf("Failed to update status. err: %v", err)
+		return err
+	}
+
+	log.Debug("Successfully updated status.")
+	return nil
+}
